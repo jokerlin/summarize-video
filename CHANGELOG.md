@@ -95,3 +95,24 @@
 - Python / `uv` dependency
 - `install_deps.sh` (replaced by `install_deps.ts`)
 - `parallel_transcribe.py` (replaced by `src/transcribe.ts` + `src/workers/whisper-worker.ts`)
+
+## [1.0.0] - 2026-05-08
+
+### Origin
+
+This repository began as a TypeScript + Bun port of the upstream open-source
+project:
+
+- **Source project:** [`liang121/video-summarizer`](https://github.com/liang121/video-summarizer) (v1.1.1)
+- **License:** MIT
+- **Author:** [@liang121](https://github.com/liang121)
+
+The upstream is a Python implementation built on `yt-dlp`, `ffmpeg`, and
+`faster-whisper` (CTranslate2). The original 3-tier subtitle fallback
+(manual → auto → local Whisper), silence-based audio splitting, and the
+`summary-prompt.md` template all originated there. Subsequent versions in this
+repo (2.0.0 onward) reimplement the pipeline in TypeScript and have since
+diverged in toolchain (whisper.cpp / whisper-cli) and defaults; see the 2.0.0
+and 3.0.0 entries above for the divergence trail.
+
+Many thanks to the upstream author for the original design.
