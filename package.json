@@ -1,7 +1,7 @@
 {
   "name": "video-summarizer",
   "version": "2.0.0",
-  "description": "Download videos from 1800+ platforms and produce a Claude-ready summary package (TS+Bun port of liang121/video-summarizer)",
+  "description": "Download videos from 1800+ platforms and produce a Claude-ready summary package (TypeScript + Bun, transcription via the openai-whisper CLI)",
   "license": "MIT",
   "type": "module",
   "module": "src/cli.ts",
@@ -15,9 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
-  "dependencies": {
-    "smart-whisper": "^0.8.1"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",
     "@types/bun": "latest",
@@ -25,6 +23,5 @@
   },
   "engines": {
     "bun": ">=1.1.0"
-  },
-  "trustedDependencies": ["smart-whisper"]
+  }
 }

@@ -1,3 +1,0 @@
-ffmpeg version 6.1 Copyright (c) 2000-2023 the FFmpeg developers
-Stream #0:0: Audio: mp3, 44100 Hz, stereo, fltp
-size=N/A time=00:01:23.45 bitrate=N/A speed=  234x

@@ -7,18 +7,6 @@ import { run, which } from "../../../src/shell.ts";
 const log = (s: string) => process.stdout.write(`${s}\n`);
 const err = (s: string) => process.stderr.write(`${s}\n`);
 
-async function ensureXcodeCli(): Promise<void> {
-  if (process.platform !== "darwin") return;
-  const r = await run("xcode-select", ["-p"]);
-  if (r.exitCode !== 0) {
-    err("  Xcode Command Line Tools not found.");
-    err("  Install with: xcode-select --install");
-    err("  (Required so `bun install` can build smart-whisper's N-API addon.)");
-    process.exit(1);
-  }
-  log("  Xcode CLI Tools: OK");
-}
-
 async function ensureFfmpeg(): Promise<void> {
   if (await which("ffmpeg")) {
     log("  ffmpeg: OK");
@@ -80,35 +68,33 @@ async function ensureYtDlp(): Promise<void> {
   process.exit(1);
 }
 
-async function ensureBunDeps(): Promise<void> {
-  log("  Running `bun install` to make sure smart-whisper is fetched...");
-  const r = await run("bun", ["install"], { cwd: process.cwd() });
-  if (r.exitCode !== 0) {
-    err(r.stderr);
-    process.exit(1);
-  }
-  // Bun skips lifecycle scripts of untrusted deps. We declared smart-whisper
-  // in `trustedDependencies` (package.json), so `bun install` should run its
-  // node-gyp rebuild — but verify the .node file exists and rebuild if not.
-  const pkgRoot = `${process.cwd()}/node_modules/smart-whisper`;
-  const nodeAddon = `${pkgRoot}/build/Release/smart-whisper.node`;
-  if (await Bun.file(nodeAddon).exists()) {
-    log("  smart-whisper native addon: OK");
+async function ensureWhisperCli(): Promise<void> {
+  if (await which("whisper")) {
+    log("  whisper: OK");
     return;
   }
-  log("  Building smart-whisper native addon (node-gyp rebuild)...");
-  const env: Record<string, string> = {};
-  if (process.platform === "darwin") env.WHISPER_COREML = "1";
-  const build = await run("npx", ["node-gyp", "rebuild"], { cwd: pkgRoot, env });
-  if (build.exitCode !== 0) {
-    err(`  node-gyp rebuild failed:\n${build.stderr.slice(-1500)}`);
-    process.exit(1);
+  if (await which("pipx")) {
+    log("  Installing openai-whisper via pipx...");
+    const r = await run("pipx", ["install", "openai-whisper"]);
+    if (r.exitCode !== 0) {
+      err(r.stderr);
+      process.exit(1);
+    }
+    return;
   }
-  if (!(await Bun.file(nodeAddon).exists())) {
-    err("  Error: build succeeded but smart-whisper.node still missing.");
-    process.exit(1);
+  if (await which("pip3")) {
+    log("  Installing openai-whisper via pip3 (--user)...");
+    const r = await run("pip3", ["install", "--user", "-U", "openai-whisper"]);
+    if (r.exitCode !== 0) {
+      err(r.stderr);
+      process.exit(1);
+    }
+    return;
   }
-  log("  smart-whisper native addon built.");
+  err("  Error: please install whisper manually:");
+  err("    pipx install openai-whisper   (recommended)");
+  err("    pip install -U openai-whisper");
+  process.exit(1);
 }
 
 async function main(): Promise<void> {
@@ -116,10 +102,7 @@ async function main(): Promise<void> {
   log("Video Summarizer (TS) - Dependency Check");
   log("==========================================");
   log("");
-  log("[1/5] Xcode Command Line Tools (macOS only)");
-  await ensureXcodeCli();
-  log("");
-  log("[2/5] ffmpeg / ffprobe");
+  log("[1/3] ffmpeg / ffprobe");
   await ensureFfmpeg();
   if (!(await which("ffprobe"))) {
     err("  Error: ffprobe missing (should ship with ffmpeg).");
@@ -127,22 +110,24 @@ async function main(): Promise<void> {
   }
   log("  ffprobe: OK");
   log("");
-  log("[3/5] yt-dlp");
+  log("[2/3] yt-dlp");
   await ensureYtDlp();
   log("");
-  log("[4/5] Bun JS deps (smart-whisper)");
-  await ensureBunDeps();
+  log("[3/3] whisper CLI (openai-whisper)");
+  await ensureWhisperCli();
   log("");
-  log("[5/5] All dependencies present.");
+  log("All dependencies present.");
   log("");
   log("Versions:");
   for (const [name, args] of [
     ["bun", ["--version"]] as const,
     ["ffmpeg", ["-version"]] as const,
     ["yt-dlp", ["--version"]] as const,
+    ["whisper", ["--help"]] as const,
   ]) {
     const r = await run(name, [...args]);
-    log(`  ${name}: ${r.stdout.trim().split("\n")[0]}`);
+    const firstLine = r.stdout.trim().split("\n")[0] || r.stderr.trim().split("\n")[0] || "";
+    log(`  ${name}: ${firstLine}`);
   }
 }
 

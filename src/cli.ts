@@ -7,7 +7,7 @@ import { runAll } from "./cleanup.ts";
 import { downloadAudio, downloadSubtitles, downloadVideo, getMetadata } from "./download.ts";
 import { sanitizeTitle, which } from "./shell.ts";
 import { findSubtitleFile, vttToTranscript } from "./subtitles.ts";
-import { transcribeParallel } from "./transcribe.ts";
+import { transcribeWithWhisperCli } from "./transcribe.ts";
 import type { CliOptions, SubtitleSource, WhisperModelName } from "./types.ts";
 
 const USAGE = `Usage: bun run summarize <url> [options]
@@ -15,11 +15,9 @@ const USAGE = `Usage: bun run summarize <url> [options]
 Options:
   --model <name>            tiny | base | small (default) | medium | large-v3
   --language <code>         Language code or 'auto' (default: auto)
-  --workers <n>             Parallel ASR workers (default: floor(CPU/2),
-                            silently capped at MAX_CONCURRENT_INFERENCE = floor(CPU/4))
-  --min-segment <sec>       Min duration to enable splitting (default: 60)
   --output <dir>            Root output dir (default: ./downloads)
-  --cookies-from-browser <browser>   chrome | firefox | edge | safari
+  --cookies-from-browser <browser>   chrome (default) | firefox | edge | safari
+  --no-cookies              Disable cookie extraction (default sends Chrome cookies)
   --skip-video              Don't download video.mp4
   --no-disk-check           Skip the pre-flight free-space warning
   --help                    Print this help
@@ -27,16 +25,16 @@ Options:
 
 const VALID_MODELS: WhisperModelName[] = ["tiny", "base", "small", "medium", "large-v3"];
 const MIN_FREE_BYTES = 2 * 1024 ** 3; // 2 GB
+const DEFAULT_BROWSER = "chrome";
 
 function parseCliArgs(): CliOptions {
   const { values, positionals } = parseArgs({
     options: {
       model: { type: "string", default: "small" },
       language: { type: "string", default: "auto" },
-      workers: { type: "string" },
-      "min-segment": { type: "string", default: "60" },
       output: { type: "string", default: "./downloads" },
       "cookies-from-browser": { type: "string" },
+      "no-cookies": { type: "boolean", default: false },
       "skip-video": { type: "boolean", default: false },
       "no-disk-check": { type: "boolean", default: false },
       help: { type: "boolean", default: false },
@@ -58,15 +56,22 @@ function parseCliArgs(): CliOptions {
     process.stderr.write(`Error: --model must be one of: ${VALID_MODELS.join(", ")}\n`);
     process.exit(1);
   }
+  if (values["no-cookies"] && values["cookies-from-browser"]) {
+    process.stderr.write("Error: --no-cookies and --cookies-from-browser are mutually exclusive\n");
+    process.exit(1);
+  }
+
+  // Resolve cookies: explicit browser > --no-cookies > default chrome.
+  const cookiesFromBrowser = values["no-cookies"]
+    ? undefined
+    : (values["cookies-from-browser"] ?? DEFAULT_BROWSER);
 
   return {
     url,
     model: values.model as WhisperModelName,
     language: values.language!,
-    workers: values.workers ? Number.parseInt(values.workers, 10) : undefined,
-    minSegment: Number.parseInt(values["min-segment"]!, 10),
     output: values.output!,
-    cookiesFromBrowser: values["cookies-from-browser"],
+    cookiesFromBrowser,
     skipVideo: values["skip-video"]!,
     noDiskCheck: values["no-disk-check"]!,
   };
@@ -146,22 +151,12 @@ export async function main(): Promise<number> {
     }
   } else {
     source = "whisper";
-    const audioPath = join(outDir, "audio.mp3");
-    const transcribeOpts: Parameters<typeof transcribeParallel>[0] = {
-      input: audioPath,
+    await transcribeWithWhisperCli({
+      input: join(outDir, "audio.mp3"),
       outputDir: outDir,
       model: opts.model,
       language: opts.language,
-      minSegment: opts.minSegment,
-    };
-    if (opts.workers !== undefined) {
-      transcribeOpts.workers = opts.workers;
-    }
-    const report = await transcribeParallel(transcribeOpts);
-    if (report.failedChunks > 0 && report.failedChunks === report.totalChunks) {
-      process.stderr.write(`All ${report.totalChunks} chunks failed transcription.\n`);
-      process.exit(2);
-    }
+    });
   }
 
   await writeFile(

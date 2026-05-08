@@ -1,5 +1,0 @@
-ffmpeg version 6.1
-[silencedetect @ 0x600000001] silence_start: 5.0
-[silencedetect @ 0x600000001] silence_end: 5.5 | silence_duration: 0.5
-[silencedetect @ 0x600000001] silence_start: 58.2
-size=N/A time=00:01:00.00

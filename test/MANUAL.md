@@ -1,7 +1,6 @@
 # Manual Smoke Tests
 
-Run before every release tag. Three URLs cover the three subtitle tiers and the
-short/long ASR paths.
+Run before every release tag. Three URLs cover the three subtitle tiers.
 
 ## Pre-flight
 
@@ -21,7 +20,7 @@ Expected:
 - `_metadata.json` shows `subtitleSource: "manual"`
 - `subtitle.vtt` has WEBVTT header and timestamps
 - `transcript.txt` is non-empty, no timestamps
-- No whisper model download
+- No whisper invocation
 - Total runtime ≤ 30 seconds (network-dependent)
 
 ## Test 2 — Bilibili with auto-generated subtitles (Tier 2)
@@ -29,47 +28,36 @@ Expected:
 Pick any short Bilibili video known to have auto subs but no manual ones.
 
 ```bash
-bun run summarize "https://www.bilibili.com/video/BV1xx411c7mD" --cookies-from-browser chrome
+bun run summarize "https://www.bilibili.com/video/BV1xx411c7mD"
 ```
+
+(Default cookies = Chrome; pass `--cookies-from-browser firefox` if needed.)
 
 Expected:
 - `_metadata.json` shows `subtitleSource: "auto"`
 - All five output files present
 
-## Test 3 — Twitter/X (Tier 3 — local Whisper)
+## Test 3 — Whisper CLI fallback (Tier 3)
 
-### 3a. Short clip (<60s) — direct path
+Pick any short video known to have NO manual or auto subs (Twitter/X clips often qualify).
 
 ```bash
-bun run summarize "https://x.com/user/status/<id-of-30s-clip>"
+bun run summarize "https://x.com/user/status/<id>"
 ```
 
 Expected stderr:
 ```
-Audio is short, transcribing directly...
+Trying to fetch subtitles...
+Running whisper CLI (model=small, language=auto)...
 ```
 
-### 3b. Longer clip (5min) — parallel path
+Expected:
+- `_metadata.json` shows `subtitleSource: "whisper"`
+- `subtitle.vtt` and `transcript.txt` non-empty
 
-```bash
-bun run summarize "https://x.com/user/status/<id-of-5min-clip>"
-```
+### 3b. Failure injection
 
-Expected stderr:
-```
-Audio duration: 300.0s
-Detecting silence points...
-Found N silence points
-Will split into M chunks
-Transcribing M chunks with K workers...
-  Chunk 1/M completed
-  ...
-Merging segments...
-```
-
-### 3c. Failure injection
-
-Kill ffmpeg mid-run and verify cleanup:
+Kill mid-run and verify cleanup:
 
 ```bash
 bun run summarize "<long-video-url>"
@@ -79,16 +67,14 @@ pkill -INT bun
 
 Expected:
 - "Received SIGINT, cleaning up..." printed
-- No leftover `chunk_NNN.mp3` files in `/tmp/video-summarizer-*/`
-- No zombie ffmpeg/Worker processes (`ps aux | grep -E 'ffmpeg|whisper'`)
+- No zombie yt-dlp / whisper / ffmpeg processes (`ps aux | grep -E 'yt-dlp|whisper|ffmpeg'`)
 
 ## Sign-off Checklist
 
 - [ ] Test 1 passed (manual subs, no whisper)
 - [ ] Test 2 passed (auto subs)
-- [ ] Test 3a passed (whisper short path)
-- [ ] Test 3b passed (whisper parallel path)
-- [ ] Test 3c passed (cleanup on SIGINT)
+- [ ] Test 3 passed (whisper CLI)
+- [ ] Test 3b passed (cleanup on SIGINT)
 - [ ] No regressions in `bun test`
 - [ ] No type errors in `bun run typecheck`
 - [ ] No lint errors in `bun run lint`

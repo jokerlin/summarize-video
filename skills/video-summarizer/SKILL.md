@@ -1,6 +1,6 @@
 ---
 name: video-summarizer
-description: "Download videos from 1800+ platforms (YouTube, Bilibili, Twitter/X, TikTok, Vimeo, Instagram, etc.) and generate complete resource package with video, audio, subtitles, and AI summary. Actions: summarize, download, transcribe, extract video content. Platforms: youtube.com, bilibili.com, twitter.com, x.com, tiktok.com, vimeo.com, instagram.com, twitch.tv. Outputs: MP4 video, MP3 audio, VTT subtitles with timestamps, TXT transcript, MD AI summary. Auto-installs ffmpeg, yt-dlp. Implementation: TypeScript + Bun (no Python)."
+description: "Download videos from 1800+ platforms (YouTube, Bilibili, Twitter/X, TikTok, Vimeo, Instagram, etc.) and generate complete resource package with video, audio, subtitles, and AI summary. Actions: summarize, download, transcribe, extract video content. Platforms: youtube.com, bilibili.com, twitter.com, x.com, tiktok.com, vimeo.com, instagram.com, twitch.tv. Outputs: MP4 video, MP3 audio, VTT subtitles with timestamps, TXT transcript, MD AI summary. Auto-installs ffmpeg, yt-dlp, openai-whisper. Implementation: TypeScript + Bun, transcription via the whisper CLI."
 ---
 
 # Video Summarizer
@@ -47,7 +47,7 @@ All files are saved to `./downloads/<video-title>/` in the current working direc
 bun run "$SKILL_DIR/scripts/install_deps.ts"
 ```
 
-This installs/checks: ffmpeg, ffprobe, yt-dlp, Xcode CLI Tools (macOS), and runs `bun install` for the smart-whisper N-API addon.
+This installs/checks: ffmpeg, ffprobe, yt-dlp, and the `whisper` CLI (`openai-whisper`, installed via pipx).
 
 ### Step 2-5: Run the CLI
 
@@ -55,16 +55,17 @@ This installs/checks: ffmpeg, ffprobe, yt-dlp, Xcode CLI Tools (macOS), and runs
 bun run summarize "<URL>"
 ```
 
+By default the CLI passes `--cookies-from-browser chrome` to yt-dlp so YouTube's bot challenge and other authenticated content work out of the box. Pass `--no-cookies` to disable, or `--cookies-from-browser firefox` (etc.) to use another browser.
+
 Optional flags:
 
 | Flag | Default | Notes |
 |---|---|---|
 | `--model` | small | tiny / base / small / medium / large-v3 |
 | `--language` | auto | Language code or 'auto' |
-| `--workers` | floor(CPU/2) | Capped at floor(CPU/4) for memory safety |
-| `--min-segment` | 60 | Min audio length (sec) before splitting |
 | `--output` | ./downloads | Root output dir |
-| `--cookies-from-browser` | — | chrome / firefox / edge / safari |
+| `--cookies-from-browser` | chrome | chrome / firefox / edge / safari |
+| `--no-cookies` | false | Disable cookie extraction (mutually exclusive with `--cookies-from-browser`) |
 | `--skip-video` | false | Skip mp4 download |
 | `--no-disk-check` | false | Skip free-space warning |
 
@@ -75,7 +76,7 @@ The CLI:
 4. Tries 3 subtitle tiers, falling through:
    - **manual** — `yt-dlp --write-subs --sub-lang zh,en,zh-Hans,zh-Hant`
    - **auto** — `yt-dlp --write-auto-subs --sub-lang zh,en`
-   - **whisper** — local parallel transcription via smart-whisper (whisper.cpp)
+   - **whisper** — `whisper` CLI (openai-whisper, Python). Outputs VTT directly.
 5. Writes `subtitle.vtt`, `transcript.txt`, and `_metadata.json`.
 
 ### Step 6: Generate `summary.md`
@@ -89,26 +90,22 @@ The CLI does NOT generate `summary.md`. **You** do this:
 
 ## Platform-Specific Handling
 
-### Bilibili
+Default cookies (Chrome) are usually enough. To switch browsers or disable:
 ```bash
-bun run summarize "<URL>" --cookies-from-browser chrome
-```
-
-### Authenticated content
-```bash
-bun run summarize "<URL>" --cookies-from-browser chrome   # or firefox
+bun run summarize "<URL>" --cookies-from-browser firefox
+bun run summarize "<URL>" --no-cookies
 ```
 
 ## Error Handling
 
-- **No subtitles available** — Whisper auto-runs (Tier 3).
-- **Long video (> 1 hour)** — Parallel script handles it; warn the user about Whisper time and disk usage.
+- **No subtitles available** — Whisper CLI auto-runs (Tier 3).
+- **Long video (> 1 hour)** — Whisper handles it but is single-process; warn the user about transcription time.
 - **Unsupported platform** — `yt-dlp --list-extractors | grep -i "<name>"`.
-- **Missing dependencies** — Run install_deps.ts.
+- **Missing dependencies** — Run install_deps.ts. Whisper specifically: `pipx install openai-whisper`.
 
 ## Notes
 
 1. Files saved to `./downloads/` in the current working directory.
 2. For personal learning use only.
-3. First Whisper run downloads the model to `~/.cache/whisper-models/` (~244 MB for `small`).
-4. macOS: smart-whisper uses CoreML/Metal acceleration when built with the default options — significantly faster than CPU-only Python on Apple Silicon.
+3. First Whisper run downloads the model to `~/.cache/whisper/` (~244 MB for `small`).
+4. Whisper CLI is single-process; use `--model tiny` or `--model base` for faster (lower quality) transcription on long videos.

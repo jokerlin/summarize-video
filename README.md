@@ -1,23 +1,34 @@
 # Video Summarizer (TypeScript + Bun)
 
-A 1:1 functional port of [`liang121/video-summarizer`](https://github.com/liang121/video-summarizer) (v1.1.1) to TypeScript + Bun. Downloads videos from 1800+ platforms (yt-dlp), extracts subtitles or runs local Whisper ASR (smart-whisper / whisper.cpp), and prepares a Claude-ready summary package.
+Downloads videos from any of the 1800+ platforms supported by yt-dlp, fetches or transcribes subtitles, and prepares a Claude-ready summary package.
 
 > **Note:** This is a skill for Claude Code CLI. Not affiliated with Anthropic.
 
-## Differences From Upstream
+## How It Works
 
-| What | Upstream (Python) | This port (TS+Bun) |
-|---|---|---|
-| Runtime | Python 3.8+ via `uv` | Bun ≥ 1.1 |
-| ASR engine | `faster-whisper` (CTranslate2) | `smart-whisper` (whisper.cpp / N-API) |
-| Parallel ASR | `ProcessPoolExecutor`, model per chunk | Bun Workers, model per worker (more memory-efficient) |
-| Concurrency cap | none (implicit Python overhead) | `MAX_CONCURRENT_INFERENCE = floor(CPU/4)` |
-| GPU acceleration on macOS | CPU only by default | CoreML / Metal via whisper.cpp (3–10× faster on Apple Silicon) |
-| Progress streaming | none | live yt-dlp/ffmpeg progress to stderr |
-| Disk space check | none | warn-only pre-flight |
-| `--output` flag | not present | added |
+1. **Metadata** — `yt-dlp --print` for title, duration, platform, language.
+2. **Video** — `yt-dlp` downloads `bestvideo[≤1080p]+bestaudio` merged to `video.mp4`.
+3. **Audio** — `yt-dlp -x --audio-format mp3` extracts `audio.mp3`.
+4. **Subtitles** — three-tier fallback:
+   - Tier 1: `yt-dlp --write-subs` (manual subs, zh / en / zh-Hans / zh-Hant)
+   - Tier 2: `yt-dlp --write-auto-subs` (auto-generated, zh / en)
+   - Tier 3: `whisper` CLI (`openai-whisper`, Python) on `audio.mp3`
+5. **Transcript** — `subtitle.vtt` is parsed into a clean, timestamp-free `transcript.txt`.
+6. **Summary** — written by Claude when the skill is used inside Claude Code; the CLI alone does steps 1–5.
 
-Everything else (3-tier subtitle fallback, silence-based splitting, v1.1.1 split-point safety filter, output layout) is preserved.
+By default cookies are extracted from Chrome (`--cookies-from-browser chrome`) so YouTube's bot challenge and other authenticated content work out of the box. Pass `--no-cookies` to disable, or `--cookies-from-browser firefox` (etc.) to switch browsers.
+
+## Tech Stack
+
+| Concern | Choice |
+|---|---|
+| Runtime | Bun ≥ 1.1 (TypeScript, no transpile step) |
+| Download | yt-dlp |
+| Demux / probe | ffmpeg / ffprobe |
+| ASR | `whisper` CLI (openai-whisper, Python) |
+| Lint / format | Biome |
+
+The transcription path used to wrap `smart-whisper` (whisper.cpp via N-API) for in-process parallel inference, but Bun + Metal kept crashing during teardown. The current implementation just spawns the `whisper` CLI once per video — slower on long audio but rock-solid.
 
 ## Quick Start
 
@@ -27,7 +38,8 @@ Everything else (3-tier subtitle fallback, silence-based splitting, v1.1.1 split
 git clone https://github.com/jokerlin/summarize-video
 cd summarize-video
 bun install
-bun run skills/video-summarizer/scripts/install_deps.ts   # ffmpeg, yt-dlp
+bun run skills/video-summarizer/scripts/install_deps.ts
+# Installs/checks: ffmpeg, ffprobe, yt-dlp, openai-whisper (via pipx)
 ```
 
 ### Use
@@ -36,19 +48,35 @@ bun run skills/video-summarizer/scripts/install_deps.ts   # ffmpeg, yt-dlp
 bun run summarize "https://www.youtube.com/watch?v=..."
 ```
 
-Options: see `bun run summarize --help`.
+Common flags:
+
+```bash
+# pick a different/faster Whisper model
+bun run summarize "<URL>" --model tiny
+
+# skip the mp4 download (audio + transcript only)
+bun run summarize "<URL>" --skip-video
+
+# use Firefox cookies instead of Chrome
+bun run summarize "<URL>" --cookies-from-browser firefox
+
+# disable cookies entirely
+bun run summarize "<URL>" --no-cookies
+```
+
+See `bun run summarize --help` for the full flag list.
 
 ### Output
 
 ```
 ./downloads/
 └── <Video_Title>/
-    ├── video.mp4
-    ├── audio.mp3
-    ├── subtitle.vtt
-    ├── transcript.txt
-    ├── _metadata.json
-    └── summary.md     # Claude generates this in skill mode
+    ├── video.mp4         # original video (≤ 1080p, mp4)
+    ├── audio.mp3         # extracted audio
+    ├── subtitle.vtt      # subtitles with timestamps
+    ├── transcript.txt    # plain-text transcript
+    ├── _metadata.json    # title / platform / url / duration / subtitleSource
+    └── summary.md        # Claude generates this in skill mode
 ```
 
 ## Whisper Models
@@ -61,7 +89,7 @@ Options: see `bun run summarize --help`.
 | medium | 769 MB | Slow | Better |
 | large-v3 | 1.5 GB | Slowest | Best |
 
-Models auto-download from HuggingFace to `~/.cache/whisper-models/` on first use.
+Models auto-download from HuggingFace to `~/.cache/whisper/` on first use.
 
 ## Development
 
@@ -72,7 +100,7 @@ bun run lint       # biome check
 bun run format     # biome format --write
 ```
 
-See `test/MANUAL.md` for end-to-end smoke test procedure (YouTube / Bilibili / Twitter).
+See `test/MANUAL.md` for the end-to-end smoke test procedure (YouTube / Bilibili / Twitter).
 
 ## License
 
@@ -80,5 +108,6 @@ MIT — see [LICENSE](./LICENSE)
 
 ## Credits
 
-- Upstream design: [liang121/video-summarizer](https://github.com/liang121/video-summarizer)
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp), [ffmpeg](https://ffmpeg.org/), [whisper.cpp](https://github.com/ggerganov/whisper.cpp), [smart-whisper](https://github.com/MichaelMartzy/smart-whisper)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+- [ffmpeg](https://ffmpeg.org/)
+- [openai-whisper](https://github.com/openai/whisper)
