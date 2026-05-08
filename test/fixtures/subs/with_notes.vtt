@@ -1,0 +1,14 @@
+WEBVTT
+Kind: captions
+Language: en
+
+NOTE
+This is a note that should be skipped.
+
+00:00:00.000 --> 00:00:03.000
+First line.
+
+NOTE another note
+
+00:00:03.500 --> 00:00:05.500
+Second line.
