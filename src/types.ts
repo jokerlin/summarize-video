@@ -42,7 +42,8 @@ export type WorkerMessage =
 export type WorkerReply =
   | { type: "READY" }
   | { type: "RESULT"; result: ChunkResult }
-  | { type: "ERROR"; chunkIdx: number; message: string };
+  | { type: "ERROR"; chunkIdx: number; message: string }
+  | { type: "SHUTDOWN_DONE" };
 
 export type WhisperModelName = "tiny" | "base" | "small" | "medium" | "large-v3";
 

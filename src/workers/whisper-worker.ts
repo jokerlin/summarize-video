@@ -95,6 +95,10 @@ let whisper: Whisper | null = null;
         // Ignore errors during teardown — the worker is exiting anyway
       }
       whisper = null;
+      // Ack so the pool can wait for whisper.cpp's Metal/CUDA context teardown
+      // to finish before forcibly terminating us. Without this ack, terminate()
+      // interrupts native cleanup and the process exits with SIGTRAP (133).
+      post({ type: "SHUTDOWN_DONE" });
       (workerSelf as { close: () => void }).close();
       return;
     }

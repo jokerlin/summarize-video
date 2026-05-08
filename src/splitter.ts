@@ -5,10 +5,18 @@ import { cutSegment, getAudioDuration } from "./ffmpeg.ts";
 /**
  * Decide where to split an audio file given silence candidates.
  *
- * Mirrors the Python parallel_transcribe.py heuristic:
- * - Prefer silences spaced ~target apart, within [min, max] segment length
- * - Force a split when current segment exceeds 80% of max
- * - Fall back to equal target-length cuts when no silence at all
+ * Two-phase algorithm:
+ *
+ * Phase 1 — silence-driven (mirrors Python parallel_transcribe.py heuristic):
+ *   - Prefer silences spaced ~target apart, within [min, max] segment length
+ *   - Force a split when current segment exceeds 80% of max
+ *
+ * Phase 2 — bound oversized chunks (P2 fix for sparse-silence audio):
+ *   - Walk the picked silences; whenever a chunk would exceed `max`, insert
+ *     equal-target cuts inside it. Also bounds the leading section (before
+ *     the first silence) and the trailing section (after the last).
+ *   - This subsumes the old "no silence at all" fallback as the trivial case
+ *     where Phase 1 produces zero points.
  *
  * Refinement A: trim trailing split points whose tail-segment would be < min.
  */
@@ -21,27 +29,36 @@ export function findSplitPoints(
 ): number[] {
   if (duration <= max) return [];
 
-  const splitPoints: number[] = [];
+  // Phase 1: silence-driven picking.
+  const phase1: number[] = [];
   let lastSplit = 0;
-
   for (const s of silencePoints) {
     const segLen = s - lastSplit;
     if (segLen >= target) {
-      if (segLen <= max || splitPoints.length === 0) {
-        splitPoints.push(s);
+      if (segLen <= max || phase1.length === 0) {
+        phase1.push(s);
         lastSplit = s;
       }
     } else if (segLen >= min && s - lastSplit > max * 0.8) {
-      splitPoints.push(s);
+      phase1.push(s);
       lastSplit = s;
     }
   }
 
-  if (splitPoints.length === 0 && duration > max) {
-    const n = Math.floor(duration / target) + 1;
-    for (let i = 1; i < n; i++) {
-      splitPoints.push(i * target);
+  // Phase 2: subdivide any chunk that still exceeds max.
+  const splitPoints: number[] = [];
+  let cursor = 0;
+  for (const sp of phase1) {
+    while (sp - cursor > max) {
+      cursor = cursor + target;
+      splitPoints.push(cursor);
     }
+    splitPoints.push(sp);
+    cursor = sp;
+  }
+  while (duration - cursor > max) {
+    cursor = cursor + target;
+    splitPoints.push(cursor);
   }
 
   // Refinement A: drop trailing splits that produce a too-short tail chunk.

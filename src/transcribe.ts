@@ -140,15 +140,41 @@ class WorkerPool {
   }
 
   async terminate(): Promise<void> {
-    for (const w of this.workers) {
-      try {
-        this.send(w, { type: "SHUTDOWN" });
-      } catch {
-        // ignore
-      }
-    }
-    await new Promise((r) => setTimeout(r, 200));
-    for (const w of this.workers) w.terminate();
+    // Two-phase shutdown: send SHUTDOWN, wait for SHUTDOWN_DONE ack, then terminate.
+    // Without the ack, terminate() interrupts whisper.cpp's Metal/CUDA context
+    // teardown mid-flight and the process exits with SIGTRAP (exit 133).
+    await Promise.all(
+      this.workers.map(
+        (w) =>
+          new Promise<void>((resolve) => {
+            let settled = false;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
+              w.removeEventListener("message", onDone as EventListener);
+              clearTimeout(timer);
+              try {
+                w.terminate();
+              } catch {
+                // ignore
+              }
+              resolve();
+            };
+            // biome-ignore lint/suspicious/noExplicitAny: Bun Worker event typing requires any cast
+            const onDone = (e: any) => {
+              const data = e.data as WorkerReply;
+              if (data.type === "SHUTDOWN_DONE") finish();
+            };
+            w.addEventListener("message", onDone as EventListener);
+            const timer = setTimeout(finish, 5000);
+            try {
+              this.send(w, { type: "SHUTDOWN" });
+            } catch {
+              finish();
+            }
+          }),
+      ),
+    );
     this.workers = [];
     this.idle = [];
   }
