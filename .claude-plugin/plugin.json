@@ -1,7 +1,7 @@
 {
   "name": "video-summarizer",
-  "description": "Download videos from 1800+ platforms and generate AI summaries (TypeScript + Bun port)",
-  "version": "2.0.0",
+  "description": "Download videos from 1800+ platforms and generate AI summaries (TypeScript + Bun, transcription via whisper.cpp's whisper-cli)",
+  "version": "3.0.0",
   "author": {
     "name": "linheng21cn"
   },
