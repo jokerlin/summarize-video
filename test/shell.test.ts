@@ -1,6 +1,6 @@
 // test/shell.test.ts
 import { describe, expect, test } from "bun:test";
-import { sanitizeTitle } from "../src/shell.ts";
+import { run, sanitizeTitle, which } from "../src/shell.ts";
 
 describe("sanitizeTitle", () => {
   test("replaces filesystem-reserved chars with underscore", () => {
@@ -37,5 +37,37 @@ describe("sanitizeTitle", () => {
 
   test("trims trailing whitespace after truncation", () => {
     expect(sanitizeTitle("hello world ", 12)).toBe("hello world");
+  });
+});
+
+describe("which", () => {
+  test("finds an existing binary", async () => {
+    const path = await which("sh");
+    expect(path).not.toBeNull();
+    expect(path).toMatch(/\/sh$/);
+  });
+
+  test("returns null for a missing binary", async () => {
+    const path = await which("definitely-not-a-real-binary-xyz123");
+    expect(path).toBeNull();
+  });
+});
+
+describe("run", () => {
+  test("captures stdout and exit code", async () => {
+    const r = await run("echo", ["hello"]);
+    expect(r.stdout.trim()).toBe("hello");
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("captures stderr separately", async () => {
+    const r = await run("sh", ["-c", "echo out; echo err 1>&2"]);
+    expect(r.stdout.trim()).toBe("out");
+    expect(r.stderr.trim()).toBe("err");
+  });
+
+  test("non-zero exit code is preserved", async () => {
+    const r = await run("sh", ["-c", "exit 7"]);
+    expect(r.exitCode).toBe(7);
   });
 });
