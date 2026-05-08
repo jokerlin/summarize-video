@@ -1,0 +1,38 @@
+{
+  "name": "video-summarizer",
+  "id": "video-summarizer",
+  "owner": {
+    "name": "linheng21cn"
+  },
+  "metadata": {
+    "description": "Download videos from 1800+ platforms and generate AI summaries (TypeScript + Bun port)",
+    "version": "2.0.0"
+  },
+  "plugins": [
+    {
+      "name": "video-summarizer",
+      "source": "./",
+      "description": "Download videos from YouTube, Bilibili, Twitter/X, TikTok and 1800+ platforms. Outputs video (MP4), audio (MP3), subtitles (VTT), transcript (TXT), and metadata. Implementation: TypeScript + Bun (no Python). ASR via smart-whisper (whisper.cpp/N-API).",
+      "version": "2.0.0",
+      "author": {
+        "name": "linheng21cn"
+      },
+      "keywords": [
+        "video",
+        "download",
+        "youtube",
+        "bilibili",
+        "twitter",
+        "tiktok",
+        "subtitle",
+        "transcription",
+        "whisper",
+        "ai-summary",
+        "yt-dlp",
+        "typescript",
+        "bun"
+      ],
+      "category": "productivity"
+    }
+  ]
+}
