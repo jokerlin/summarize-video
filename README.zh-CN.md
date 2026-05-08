@@ -29,6 +29,28 @@
 
 ## 📦 安装
 
+### 方式 A — Claude Code 插件（推荐）
+
+在 Claude Code 里执行：
+
+```
+/plugin marketplace add jokerlin/summarize-video
+/plugin install video-summarizer@video-summarizer
+```
+
+作为 Claude Code skill 调用时，依赖脚本会在首次运行时自动跑（`ffmpeg`、`ffprobe`、`yt-dlp`、`whisper-cpp`，macOS 走 Homebrew）。
+
+更新插件：
+
+```
+/plugin marketplace update video-summarizer
+/reload-plugins
+```
+
+卸载：`/plugin uninstall video-summarizer@video-summarizer`。开启 auto-update 的 marketplace（自添加的默认开启）会在 Claude Code 启动时自动拉新版本。
+
+### 方式 B — 独立 CLI
+
 ```bash
 git clone https://github.com/jokerlin/summarize-video
 cd summarize-video

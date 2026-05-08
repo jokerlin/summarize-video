@@ -29,6 +29,28 @@ A small CLI that pulls audio from 1800+ video platforms, transcribes it locally 
 
 ## 📦 Installation
 
+### Option A — Claude Code plugin (recommended)
+
+Inside Claude Code:
+
+```
+/plugin marketplace add jokerlin/summarize-video
+/plugin install video-summarizer@video-summarizer
+```
+
+When invoked as a Claude Code skill, the install script auto-runs the first time (`ffmpeg`, `ffprobe`, `yt-dlp`, `whisper-cpp` via Homebrew on macOS).
+
+To update later:
+
+```
+/plugin marketplace update video-summarizer
+/reload-plugins
+```
+
+To uninstall: `/plugin uninstall video-summarizer@video-summarizer`. Marketplaces with auto-update enabled (the default for marketplaces you add yourself) will pull new versions automatically at Claude Code startup.
+
+### Option B — Standalone CLI
+
 ```bash
 git clone https://github.com/jokerlin/summarize-video
 cd summarize-video
