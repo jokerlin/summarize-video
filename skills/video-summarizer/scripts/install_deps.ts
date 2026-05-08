@@ -69,31 +69,26 @@ async function ensureYtDlp(): Promise<void> {
 }
 
 async function ensureWhisperCli(): Promise<void> {
-  if (await which("whisper")) {
-    log("  whisper: OK");
+  if (await which("whisper-cli")) {
+    log("  whisper-cli: OK");
     return;
   }
-  if (await which("pipx")) {
-    log("  Installing openai-whisper via pipx...");
-    const r = await run("pipx", ["install", "openai-whisper"]);
+  if (process.platform === "darwin") {
+    if (!(await which("brew"))) {
+      err("  Error: Homebrew not found. Install whisper-cpp manually:");
+      err("    https://github.com/ggml-org/whisper.cpp");
+      process.exit(1);
+    }
+    log("  Installing whisper-cpp via brew...");
+    const r = await run("brew", ["install", "whisper-cpp"]);
     if (r.exitCode !== 0) {
       err(r.stderr);
       process.exit(1);
     }
     return;
   }
-  if (await which("pip3")) {
-    log("  Installing openai-whisper via pip3 (--user)...");
-    const r = await run("pip3", ["install", "--user", "-U", "openai-whisper"]);
-    if (r.exitCode !== 0) {
-      err(r.stderr);
-      process.exit(1);
-    }
-    return;
-  }
-  err("  Error: please install whisper manually:");
-  err("    pipx install openai-whisper   (recommended)");
-  err("    pip install -U openai-whisper");
+  err("  Error: please install whisper-cpp manually (provides `whisper-cli`):");
+  err("    https://github.com/ggml-org/whisper.cpp");
   process.exit(1);
 }
 
@@ -113,7 +108,7 @@ async function main(): Promise<void> {
   log("[2/3] yt-dlp");
   await ensureYtDlp();
   log("");
-  log("[3/3] whisper CLI (openai-whisper)");
+  log("[3/3] whisper-cli (whisper.cpp)");
   await ensureWhisperCli();
   log("");
   log("All dependencies present.");
@@ -123,7 +118,7 @@ async function main(): Promise<void> {
     ["bun", ["--version"]] as const,
     ["ffmpeg", ["-version"]] as const,
     ["yt-dlp", ["--version"]] as const,
-    ["whisper", ["--help"]] as const,
+    ["whisper-cli", ["--help"]] as const,
   ]) {
     const r = await run(name, [...args]);
     const firstLine = r.stdout.trim().split("\n")[0] || r.stderr.trim().split("\n")[0] || "";

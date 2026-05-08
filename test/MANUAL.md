@@ -37,7 +37,7 @@ Expected:
 - `_metadata.json` shows `subtitleSource: "auto"`
 - All five output files present
 
-## Test 3 — Whisper CLI fallback (Tier 3)
+## Test 3 — Whisper fallback (Tier 3)
 
 Pick any short video known to have NO manual or auto subs (Twitter/X clips often qualify).
 
@@ -48,12 +48,13 @@ bun run summarize "https://x.com/user/status/<id>"
 Expected stderr:
 ```
 Trying to fetch subtitles...
-Running whisper CLI (model=small, language=auto)...
+Running whisper-cli (model=base, language=auto, GPU=Metal)...
 ```
 
 Expected:
 - `_metadata.json` shows `subtitleSource: "whisper"`
 - `subtitle.vtt` and `transcript.txt` non-empty
+- `video.mp4` does NOT exist (audio-only by default; use `--with-video` to include it)
 
 ### 3b. Failure injection
 
@@ -67,7 +68,16 @@ pkill -INT bun
 
 Expected:
 - "Received SIGINT, cleaning up..." printed
-- No zombie yt-dlp / whisper / ffmpeg processes (`ps aux | grep -E 'yt-dlp|whisper|ffmpeg'`)
+- No zombie yt-dlp / whisper-cli / ffmpeg processes (`ps aux | grep -E 'yt-dlp|whisper|ffmpeg'`)
+
+### 3c. --with-video
+
+```bash
+bun run summarize "<URL>" --with-video
+```
+
+Expected:
+- All output files present, **including** `video.mp4`
 
 ## Sign-off Checklist
 

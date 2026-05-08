@@ -12,13 +12,16 @@ import type { CliOptions, SubtitleSource, WhisperModelName } from "./types.ts";
 
 const USAGE = `Usage: bun run summarize <url> [options]
 
+By default only audio + transcript are produced (faster + saves bandwidth).
+Pass --with-video to also download the mp4.
+
 Options:
-  --model <name>            tiny | base | small (default) | medium | large-v3
+  --model <name>            tiny | base (default) | small | medium | large-v3
   --language <code>         Language code or 'auto' (default: auto)
   --output <dir>            Root output dir (default: ./downloads)
   --cookies-from-browser <browser>   chrome (default) | firefox | edge | safari
   --no-cookies              Disable cookie extraction (default sends Chrome cookies)
-  --skip-video              Don't download video.mp4
+  --with-video              Also download video.mp4 (default: audio + transcript only)
   --no-disk-check           Skip the pre-flight free-space warning
   --help                    Print this help
 `;
@@ -30,12 +33,12 @@ const DEFAULT_BROWSER = "chrome";
 function parseCliArgs(): CliOptions {
   const { values, positionals } = parseArgs({
     options: {
-      model: { type: "string", default: "small" },
+      model: { type: "string", default: "base" },
       language: { type: "string", default: "auto" },
       output: { type: "string", default: "./downloads" },
       "cookies-from-browser": { type: "string" },
       "no-cookies": { type: "boolean", default: false },
-      "skip-video": { type: "boolean", default: false },
+      "with-video": { type: "boolean", default: false },
       "no-disk-check": { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
@@ -72,7 +75,7 @@ function parseCliArgs(): CliOptions {
     language: values.language!,
     output: values.output!,
     cookiesFromBrowser,
-    skipVideo: values["skip-video"]!,
+    withVideo: values["with-video"]!,
     noDiskCheck: values["no-disk-check"]!,
   };
 }
@@ -131,12 +134,12 @@ export async function main(): Promise<number> {
   await mkdir(outDir, { recursive: true });
   process.stderr.write(`Output dir: ${outDir}\n`);
 
-  if (!opts.skipVideo) {
+  if (opts.withVideo) {
     process.stderr.write("Downloading video...\n");
     await downloadVideo(opts.url, outDir, cookiesOpt);
   }
 
-  process.stderr.write("Extracting audio...\n");
+  process.stderr.write("Downloading audio...\n");
   await downloadAudio(opts.url, outDir, cookiesOpt);
 
   process.stderr.write("Trying to fetch subtitles...\n");
@@ -177,7 +180,7 @@ export async function main(): Promise<number> {
   );
 
   const summary: string[] = [];
-  if (!opts.skipVideo) summary.push("✓ video.mp4");
+  if (opts.withVideo) summary.push("✓ video.mp4");
   summary.push("✓ audio.mp3");
   summary.push(`✓ subtitle.vtt    (source: ${source})`);
   summary.push("✓ transcript.txt");

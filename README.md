@@ -1,61 +1,57 @@
-# Video Summarizer (TypeScript + Bun)
+<div align="center">
 
-Downloads videos from any of the 1800+ platforms supported by yt-dlp, fetches or transcribes subtitles, and prepares a Claude-ready summary package.
+# 🎬 Video Summarizer
 
-> **Note:** This is a skill for Claude Code CLI. Not affiliated with Anthropic.
+**Download any video, get a clean transcript, hand Claude a summary-ready package.**
 
-## How It Works
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Bun](https://img.shields.io/badge/Bun-≥1.1-fbf0df?logo=bun&logoColor=000)](https://bun.sh)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=fff)](https://www.typescriptlang.org/)
+[![yt-dlp](https://img.shields.io/badge/yt--dlp-1800%2B%20sites-red)](https://github.com/yt-dlp/yt-dlp)
+[![whisper.cpp](https://img.shields.io/badge/whisper.cpp-Metal-4b8bbe)](https://github.com/ggml-org/whisper.cpp)
 
-1. **Metadata** — `yt-dlp --print` for title, duration, platform, language.
-2. **Video** — `yt-dlp` downloads `bestvideo[≤1080p]+bestaudio` merged to `video.mp4`.
-3. **Audio** — `yt-dlp -x --audio-format mp3` extracts `audio.mp3`.
-4. **Subtitles** — three-tier fallback:
-   - Tier 1: `yt-dlp --write-subs` (manual subs, zh / en / zh-Hans / zh-Hant)
-   - Tier 2: `yt-dlp --write-auto-subs` (auto-generated, zh / en)
-   - Tier 3: `whisper` CLI (`openai-whisper`, Python) on `audio.mp3`
-5. **Transcript** — `subtitle.vtt` is parsed into a clean, timestamp-free `transcript.txt`.
-6. **Summary** — written by Claude when the skill is used inside Claude Code; the CLI alone does steps 1–5.
+**English** · [简体中文](./README.zh-CN.md)
 
-By default cookies are extracted from Chrome (`--cookies-from-browser chrome`) so YouTube's bot challenge and other authenticated content work out of the box. Pass `--no-cookies` to disable, or `--cookies-from-browser firefox` (etc.) to switch browsers.
+</div>
 
-## Tech Stack
+---
 
-| Concern | Choice |
-|---|---|
-| Runtime | Bun ≥ 1.1 (TypeScript, no transpile step) |
-| Download | yt-dlp |
-| Demux / probe | ffmpeg / ffprobe |
-| ASR | `whisper` CLI (openai-whisper, Python) |
-| Lint / format | Biome |
+A small CLI that pulls audio from 1800+ video platforms, transcribes it locally with whisper.cpp, and packages everything Claude needs to write a summary. Built as a Claude Code skill, but the CLI runs fine on its own.
 
-The transcription path used to wrap `smart-whisper` (whisper.cpp via N-API) for in-process parallel inference, but Bun + Metal kept crashing during teardown. The current implementation just spawns the `whisper` CLI once per video — slower on long audio but rock-solid.
+## ✨ Features
 
-## Quick Start
+- **🌐 Works almost anywhere** — anything `yt-dlp` supports: YouTube, Bilibili, Twitter / X, TikTok, Vimeo, Instagram, Twitch, …
+- **🔇 Audio-first** — pulls only `audio.mp3` by default; pass `--with-video` when you actually need the mp4
+- **📝 Three-tier subtitles** — official subs → auto-generated subs → local Whisper, in that order
+- **⚡ Fast on Apple Silicon** — `whisper-cli` runs on Metal, roughly 5–10× faster than the Python whisper CLI on the same model
+- **🍪 Cookie-aware** — Chrome cookies by default, so YouTube's bot challenge stays out of your way
+- **📦 Zero glue code** — Bun + TypeScript only; no build step, no Python venv
 
-### Install
+## 📦 Installation
 
 ```bash
 git clone https://github.com/jokerlin/summarize-video
 cd summarize-video
 bun install
 bun run skills/video-summarizer/scripts/install_deps.ts
-# Installs/checks: ffmpeg, ffprobe, yt-dlp, openai-whisper (via pipx)
 ```
 
-### Use
+The install script checks for and installs `ffmpeg`, `ffprobe`, `yt-dlp`, and `whisper-cpp` (via Homebrew on macOS).
+
+## 🚀 Usage
 
 ```bash
 bun run summarize "https://www.youtube.com/watch?v=..."
 ```
 
-Common flags:
+### Common flags
 
 ```bash
-# pick a different/faster Whisper model
-bun run summarize "<URL>" --model tiny
+# also keep the mp4 (default is audio-only)
+bun run summarize "<URL>" --with-video
 
-# skip the mp4 download (audio + transcript only)
-bun run summarize "<URL>" --skip-video
+# pick a different Whisper model (default: base)
+bun run summarize "<URL>" --model small
 
 # use Firefox cookies instead of Chrome
 bun run summarize "<URL>" --cookies-from-browser firefox
@@ -64,34 +60,58 @@ bun run summarize "<URL>" --cookies-from-browser firefox
 bun run summarize "<URL>" --no-cookies
 ```
 
-See `bun run summarize --help` for the full flag list.
+Run `bun run summarize --help` for the full flag list.
 
 ### Output
 
 ```
 ./downloads/
 └── <Video_Title>/
-    ├── video.mp4         # original video (≤ 1080p, mp4)
     ├── audio.mp3         # extracted audio
     ├── subtitle.vtt      # subtitles with timestamps
     ├── transcript.txt    # plain-text transcript
-    ├── _metadata.json    # title / platform / url / duration / subtitleSource
-    └── summary.md        # Claude generates this in skill mode
+    ├── _metadata.json    # title / platform / url / duration / source
+    ├── summary.md        # Claude generates this in skill mode
+    └── video.mp4         # only if --with-video was passed
 ```
 
-## Whisper Models
+## 🎯 How It Works
 
-| Model | Size | Speed | Quality |
-|---|---|---|---|
-| tiny | 39 MB | Fastest | Basic |
-| base | 74 MB | Fast | Good |
-| **small** | 244 MB | Medium | **Default** |
-| medium | 769 MB | Slow | Better |
-| large-v3 | 1.5 GB | Slowest | Best |
+1. **Metadata** — `yt-dlp --print` for title, duration, platform, language
+2. **Audio** — `yt-dlp -x --audio-format mp3` extracts `audio.mp3`
+3. **Video** *(optional)* — with `--with-video`, downloads `bestvideo[≤1080p]+bestaudio` merged to `video.mp4`
+4. **Subtitles** — three-tier fallback:
+   1. `yt-dlp --write-subs` — official subs (zh / en / zh-Hans / zh-Hant)
+   2. `yt-dlp --write-auto-subs` — auto-generated (zh / en)
+   3. `whisper-cli` — local transcription
+5. **Transcript** — `subtitle.vtt` parsed into a clean, timestamp-free `transcript.txt`
+6. **Summary** — written by Claude when invoked as a Claude Code skill; the CLI alone covers steps 1–5
 
-Models auto-download from HuggingFace to `~/.cache/whisper/` on first use.
+## 🤖 Whisper Models
 
-## Development
+| Model        | Size    | Speed   | Quality     |
+| ------------ | ------- | ------- | ----------- |
+| tiny         | 39 MB   | Fastest | Basic       |
+| **base**     | 74 MB   | Fast    | **Default** |
+| small        | 244 MB  | Medium  | Good        |
+| medium       | 769 MB  | Slow    | Better      |
+| large-v3     | 1.5 GB  | Slowest | Best        |
+
+GGML models auto-download from HuggingFace (`ggerganov/whisper.cpp`) into `~/.cache/whisper-cpp/` on first use.
+
+## 🛠 Tech Stack
+
+| Concern       | Choice                                            |
+| ------------- | ------------------------------------------------- |
+| Runtime       | Bun ≥ 1.1 (TypeScript, no transpile step)         |
+| Download      | yt-dlp                                            |
+| Demux / probe | ffmpeg / ffprobe                                  |
+| ASR           | `whisper-cli` (whisper.cpp + Metal / CUDA)        |
+| Lint / format | Biome                                             |
+
+ASR history: this project briefly used `smart-whisper` (whisper.cpp via N-API) for in-process parallel inference, then `openai-whisper` (Python CLI) for stability. Both were replaced by `whisper-cli` directly — it accepts mp3 natively, runs on Metal out of the box, and is roughly 5–10× faster than the Python whisper CLI on the same model.
+
+## 🧪 Development
 
 ```bash
 bun test           # unit tests
@@ -100,14 +120,16 @@ bun run lint       # biome check
 bun run format     # biome format --write
 ```
 
-See `test/MANUAL.md` for the end-to-end smoke test procedure (YouTube / Bilibili / Twitter).
+See [`test/MANUAL.md`](./test/MANUAL.md) for the end-to-end smoke test procedure (YouTube / Bilibili / Twitter).
 
-## License
+## 📄 License
 
-MIT — see [LICENSE](./LICENSE)
+[MIT](./LICENSE) © [jokerlin](https://github.com/jokerlin)
 
-## Credits
+> Not affiliated with Anthropic.
 
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-- [ffmpeg](https://ffmpeg.org/)
-- [openai-whisper](https://github.com/openai/whisper)
+## 🙏 Credits
+
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — the universal video downloader
+- [ffmpeg](https://ffmpeg.org/) — audio extraction and probing
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) — fast local transcription
