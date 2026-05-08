@@ -48,8 +48,6 @@ class WorkerPool {
         type: "module",
       });
       this.workers.push(worker);
-      // biome-ignore lint/suspicious/noExplicitAny: Bun Worker event typing requires any cast
-      worker.onmessage = (e: any) => this.onReply(worker, e.data as WorkerReply);
       worker.onerror = (e) => {
         const rej = this.rejecters.get(worker);
         if (rej) rej(new Error(`worker errored: ${String(e)}`));
@@ -260,7 +258,7 @@ export async function transcribeParallel(opts: TranscribeOptions): Promise<Trans
 
     const results = new Map<number, ChunkResult>();
     let failed = 0;
-    let completed = 0;
+    let succeeded = 0;
     await Promise.all(
       chunks.map(async (chunk, idx) => {
         const result = await pool!.dispatch({
@@ -270,12 +268,12 @@ export async function transcribeParallel(opts: TranscribeOptions): Promise<Trans
           language,
         });
         results.set(idx, result);
-        completed++;
         if (result.error) {
           failed++;
-          process.stderr.write(`  Chunk ${idx} failed: ${result.error}\n`);
+          process.stderr.write(`  Chunk ${idx + 1}/${chunks.length} failed: ${result.error}\n`);
         } else {
-          process.stderr.write(`  Chunk ${completed}/${chunks.length} completed\n`);
+          succeeded++;
+          process.stderr.write(`  Chunk ${succeeded}/${chunks.length} completed\n`);
         }
       }),
     );
