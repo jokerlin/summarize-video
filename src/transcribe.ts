@@ -1,8 +1,8 @@
 // src/transcribe.ts
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import * as os from "node:os";
-import { homedir, tmpdir } from "node:os";
+import { cpus, homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { register, unregister } from "./cleanup.ts";
 import { getAudioDuration } from "./ffmpeg.ts";
 import { detectSilence } from "./silence.ts";
 import { type AudioChunk, findSplitPoints, splitAudio } from "./splitter.ts";
@@ -15,7 +15,7 @@ import type {
   WorkerReply,
 } from "./types.ts";
 
-export const MAX_CONCURRENT_INFERENCE = Math.max(1, Math.floor(os.cpus().length / 4));
+export const MAX_CONCURRENT_INFERENCE = Math.max(1, Math.floor(cpus().length / 4));
 
 const MODEL_CACHE_DIR = join(homedir(), ".cache", "whisper-models");
 
@@ -207,7 +207,7 @@ export interface TranscribeReport {
 export async function transcribeParallel(opts: TranscribeOptions): Promise<TranscribeReport> {
   const { input, outputDir, model, language } = opts;
   const minSegment = opts.minSegment ?? 60;
-  const requested = opts.workers ?? Math.max(1, Math.floor(os.cpus().length / 2));
+  const requested = opts.workers ?? Math.max(1, Math.floor(cpus().length / 2));
 
   const duration = await getAudioDuration(input);
   process.stderr.write(`Audio duration: ${duration.toFixed(1)}s\n`);
@@ -243,6 +243,20 @@ export async function transcribeParallel(opts: TranscribeOptions): Promise<Trans
 
   const tmpRoot = await mkdtemp(join(tmpdir(), "video-summarizer-"));
   let pool: WorkerPool | null = null;
+
+  const cleanup = async () => {
+    try {
+      if (pool) await pool.terminate();
+    } catch {
+      // ignore
+    }
+    try {
+      await rm(tmpRoot, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  };
+  register(cleanup);
 
   try {
     process.stderr.write("Splitting audio...\n");
@@ -285,6 +299,7 @@ export async function transcribeParallel(opts: TranscribeOptions): Promise<Trans
 
     return { totalChunks: chunks.length, failedChunks: failed };
   } finally {
+    unregister(cleanup);
     if (pool) await pool.terminate();
     await rm(tmpRoot, { recursive: true, force: true });
   }

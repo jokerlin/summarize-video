@@ -3,6 +3,7 @@
 import { mkdir, statfs, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { runAll } from "./cleanup.ts";
 import { downloadAudio, downloadSubtitles, downloadVideo, getMetadata } from "./download.ts";
 import { sanitizeTitle, which } from "./shell.ts";
 import { findSubtitleFile, vttToTranscript } from "./subtitles.ts";
@@ -98,18 +99,10 @@ async function checkDiskSpace(dir: string): Promise<void> {
   }
 }
 
-const cleanupHooks: Array<() => Promise<void> | void> = [];
-
 function installSignalHandlers() {
   const handle = async (sig: NodeJS.Signals) => {
     process.stderr.write(`\nReceived ${sig}, cleaning up...\n`);
-    for (const h of cleanupHooks) {
-      try {
-        await h();
-      } catch {
-        // ignore
-      }
-    }
+    await runAll();
     process.exit(130);
   };
   process.on("SIGINT", handle);
@@ -188,15 +181,13 @@ export async function main(): Promise<number> {
     ),
   );
 
-  process.stdout.write(
-    `${[
-      "✓ video.mp4",
-      "✓ audio.mp3",
-      `✓ subtitle.vtt    (source: ${source})`,
-      "✓ transcript.txt",
-      "⚠ summary.md      (skill mode only — Claude generates this)",
-    ].join("\n")}\n`,
-  );
+  const summary: string[] = [];
+  if (!opts.skipVideo) summary.push("✓ video.mp4");
+  summary.push("✓ audio.mp3");
+  summary.push(`✓ subtitle.vtt    (source: ${source})`);
+  summary.push("✓ transcript.txt");
+  summary.push("⚠ summary.md      (skill mode only — Claude generates this)");
+  process.stdout.write(`${summary.join("\n")}\n`);
   return 0;
 }
 
