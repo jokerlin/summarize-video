@@ -66,6 +66,19 @@ describe("findSplitPoints", () => {
       expect(all[i]! - all[i - 1]!).toBeLessThanOrEqual(45);
     }
   });
+
+  test("stays monotonic with degenerate target > max (Codex regression)", () => {
+    // Phase 2 step must be clamped so cursor never overshoots the silence.
+    const result = findSplitPoints(130, [100], 120, 10, 45);
+    for (let i = 1; i < result.length; i++) {
+      expect(result[i]!).toBeGreaterThan(result[i - 1]!);
+    }
+    expect(result[result.length - 1]!).toBeLessThan(130);
+    const all = [0, ...result, 130];
+    for (let i = 1; i < all.length; i++) {
+      expect(all[i]! - all[i - 1]!).toBeLessThanOrEqual(45);
+    }
+  });
 });
 
 describe("filterValidSplitPoints (v1.1.1 fix)", () => {

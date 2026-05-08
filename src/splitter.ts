@@ -46,18 +46,24 @@ export function findSplitPoints(
   }
 
   // Phase 2: subdivide any chunk that still exceeds max.
+  // Step is clamped to `max` so cursor never overshoots the next silence point
+  // (or `duration`) when a caller supplies the degenerate `target > max`.
+  // While the CLI always uses target=30/max=45, the helper is publicly exposed
+  // and a non-monotonic result would make splitAudio ask ffmpeg for a
+  // negative-length segment.
+  const step = Math.min(target, max);
   const splitPoints: number[] = [];
   let cursor = 0;
   for (const sp of phase1) {
     while (sp - cursor > max) {
-      cursor = cursor + target;
+      cursor = cursor + step;
       splitPoints.push(cursor);
     }
     splitPoints.push(sp);
     cursor = sp;
   }
   while (duration - cursor > max) {
-    cursor = cursor + target;
+    cursor = cursor + step;
     splitPoints.push(cursor);
   }
 
