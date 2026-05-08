@@ -1,0 +1,29 @@
+{
+  "name": "video-summarizer",
+  "version": "2.0.0",
+  "description": "Download videos from 1800+ platforms and produce a Claude-ready summary package (TS+Bun port of liang121/video-summarizer)",
+  "license": "MIT",
+  "type": "module",
+  "module": "src/cli.ts",
+  "bin": {
+    "summarize": "./src/cli.ts"
+  },
+  "scripts": {
+    "summarize": "bun src/cli.ts",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "smart-whisper": "^0.8.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  }
+}
