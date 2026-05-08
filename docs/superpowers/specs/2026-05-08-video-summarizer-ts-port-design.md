@@ -103,13 +103,13 @@ summarize-video/
 | `src/cli.ts` | `main()` | all below |
 | `src/download.ts` | `getMetadata(url) → Metadata`, `downloadVideo(url, outDir)`, `downloadAudio(url, outDir)`, `downloadSubtitles(url, outDir)` (returns `"manual" \| "auto" \| null`) | `shell.ts` |
 | `src/subtitles.ts` | `findSubtitleFile(dir)`, `vttToTranscript(path) → string`, `srtToTranscript(path) → string` | none |
-| `src/transcribe.ts` | `transcribeParallel({input, outputDir, model, language, workers, minSegment})` (writes `subtitle.vtt` + `transcript.txt`) | `silence`, `splitter`, `ffmpeg`, workers |
-| `src/silence.ts` | `detectSilence(audioPath, noiseDb=-40, minDur=0.5) → number[]`; `parseSilenceDetectStderr(stderr) → number[]` | `ffmpeg.ts` |
-| `src/splitter.ts` | `findSplitPoints(duration, silencePoints, target=30, min=10, max=45) → number[]`; `splitAudio(audioPath, splitPoints, outDir) → {path, startOffset}[]` | `ffmpeg.ts` |
+| `src/transcribe.ts` | `transcribeParallel({input, outputDir, model, language, workers, minSegment})` (writes `subtitle.vtt` + `transcript.txt`); exports const `MAX_CONCURRENT_INFERENCE` | `silence`, `splitter`, `ffmpeg`, workers |
+| `src/silence.ts` | `detectSilence(audioPath, noiseDb=-40, minDur=0.5) → number[]`; `parseSilenceDetectStderr(stderr, audioDuration) → number[]` (handles unmatched `silence_start` at EOF — see §5) | `ffmpeg.ts` |
+| `src/splitter.ts` | `findSplitPoints(duration, silencePoints, target=30, min=10, max=45) → number[]` (drops trailing point if tail < min); `splitAudio(audioPath, splitPoints, outDir) → {path, startOffset}[]` | `ffmpeg.ts` |
 | `src/ffmpeg.ts` | `getAudioDuration(path)`, `runSilenceDetect(...)`, `cutSegment(in, start, end, out)` | `shell.ts` |
-| `src/workers/whisper-worker.ts` | (worker entry point, no exports). Receives `ChunkTask`, posts `ChunkResult`. | `smart-whisper` |
-| `src/shell.ts` | `which(bin) → string \| null`, `sanitizeTitle(s, max=80) → string`, `run(cmd, args, opts?) → {stdout, stderr, exitCode}` | Bun |
-| `src/types.ts` | `Segment {start, end, text}`, `ChunkTask {chunkIdx, chunkPath, startTime, model, language}`, `ChunkResult {chunkIdx, segments, startTime, error?}`, `Metadata {title, duration, uploader, platform, language, downloadTime, url}` | none |
+| `src/workers/whisper-worker.ts` | (worker entry point, no exports). Receives `WorkerMessage`, posts `WorkerReply`. | `smart-whisper` |
+| `src/shell.ts` | `which(bin) → string \| null`, `sanitizeTitle(s, max=80) → string`, `run(cmd, args, opts?) → {stdout, stderr, exitCode}`, `runStreaming(cmd, args, onStdout, onStderr) → exitCode` (line-buffered streaming for yt-dlp/ffmpeg progress) | Bun |
+| `src/types.ts` | `Segment`, `ChunkTask`, `ChunkResult`, `Metadata`, and discriminated unions: `WorkerMessage = {type:'LOAD', model:string} \| {type:'TRANSCRIBE', task:ChunkTask} \| {type:'SHUTDOWN'}` and `WorkerReply = {type:'READY'} \| {type:'RESULT', result:ChunkResult} \| {type:'ERROR', chunkIdx, message}` | none |
 
 ### Whisper model resolution
 
@@ -132,7 +132,21 @@ Model names: `tiny | base | small | medium | large-v3` (matches original CLI cho
 
 ### Worker pool
 
-`transcribeParallel` creates `min(workers, chunks.length)` `new Worker(new URL("./workers/whisper-worker.ts", import.meta.url), { type: "module" })` instances. Each worker, on first message, calls `smart-whisper.load(model)` once and reuses the model for all subsequent chunks dispatched to it. Pool dispatches via a simple FIFO queue. On all-done, `worker.terminate()`. Failed chunks are caught at the pool level and recorded with empty `segments`; the job continues (matches Python's `except` block).
+`transcribeParallel` creates `effectiveWorkers = min(requested, chunks.length, MAX_CONCURRENT_INFERENCE)` `new Worker(new URL("./workers/whisper-worker.ts", import.meta.url), { type: "module" })` instances.
+
+```ts
+export const MAX_CONCURRENT_INFERENCE = Math.max(1, Math.floor(os.cpus().length / 4));
+```
+
+Why the cap: whisper.cpp uses OpenMP/Accelerate threading internally; running too many model instances in parallel causes thread contention and OOM (large-v3 weights are ~1.5 GB each). Capping at `cpus/4` keeps a 16-core machine at ≤ 4 concurrent inferences even if the user passes `--workers 16`. The original Python's default (`cpus/2`) didn't hit this because each Python process loaded its model fresh per chunk and was bottlenecked elsewhere; in our TS port the model lives across chunks per worker, so concurrency is the real bottleneck.
+
+Each worker, on first `{type:'LOAD'}` message, calls `smart-whisper.load(model)` once and reuses the model for all subsequent `{type:'TRANSCRIBE'}` messages routed to it. Pool dispatches via a FIFO queue. On all-done, send `{type:'SHUTDOWN'}` then `worker.terminate()`. Failed chunks are caught at the pool level and recorded with empty `segments`; the job continues (matches Python's `except` block).
+
+### Streaming subprocess output
+
+`shell.ts` exports both:
+- `run(cmd, args)` → buffered, returns `{stdout, stderr, exitCode}` — for short commands (e.g. `which`, `yt-dlp --print`)
+- `runStreaming(cmd, args, onStdout, onStderr) → exitCode` — line-buffered via `proc.stdout.pipeThrough(new TextDecoderStream())` + `getReader()`, used for `yt-dlp` downloads and `ffmpeg` so we can forward `[download] 50.0%` progress lines to stderr in real time and avoid huge buffer accumulation on long downloads.
 
 ## 4. Data Flow
 
@@ -213,7 +227,7 @@ duration = getAudioDuration(audio.mp3)
 
 This matches the original SKILL.md step 6 semantically — Claude does both substitution and summarization. The CLI never touches `summary.md`.
 
-## 5. `splitter.findSplitPoints` Algorithm (Verbatim Port)
+## 5. `splitter.findSplitPoints` Algorithm (Port + Two Refinements)
 
 ```
 function findSplitPoints(duration, silencePoints, target=30, min=10, max=45):
@@ -233,6 +247,12 @@ function findSplitPoints(duration, silencePoints, target=30, min=10, max=45):
     n = int(duration / target) + 1
     for i in 1..n-1: splitPoints.append(i * target)
 
+  // Refinement A: drop a trailing split point if it would create a
+  // tail chunk shorter than `min` (avoids ~0.1s tails after the
+  // v1.1.1 filter pulls a split point too close to EOF).
+  while splitPoints.length > 0 and (duration - splitPoints[-1]) < min:
+    splitPoints.pop()
+
   return splitPoints
 ```
 
@@ -242,23 +262,37 @@ The v1.1.1 safety filter lives in `splitAudio`, not `findSplitPoints`:
 validSplitPoints = splitPoints.filter(sp => sp < duration - 0.5)
 ```
 
+**Refinement A** (added per review feedback): the original Python could leave a too-short tail chunk after the EOF filter. We now trim trailing points whose tail-segment would be `< min` (default 10s). Test fixture covers `splits=[..., 119.8]` with `duration=120` — the 119.8 is dropped so the last chunk stays at full length.
+
+### `silence.parseSilenceDetectStderr` notes
+
+ffmpeg's `silencedetect` filter emits `silence_start: T` and `silence_end: T` interleaved on stderr. Edge case: a video that ends in silence will emit a final `silence_start` with **no matching `silence_end`** (the filter never sees the silence "close"). The parser:
+
+1. Collects all `silence_end:` timestamps as split candidates (matches Python).
+2. **Additionally:** if there's a trailing unmatched `silence_start: T` and `T < audioDuration`, treat `T` itself as a candidate too — the silent tail is a fine place to split. Pass `audioDuration` into the parser to enable this.
+
+`parseSilenceDetectStderr` is exported from `silence.ts` so it can be unit-tested against fixtures without invoking ffmpeg.
+
 ## 6. Error Handling
 
 | Failure | Handling |
 |---|---|
 | `yt-dlp` / `ffmpeg` / `ffprobe` not on PATH | Hard fail at start of `cli.main()`, message points to `install_deps.ts`. |
 | `yt-dlp` exit ≠ 0 | Throw with stderr; suggest `--cookies-from-browser chrome`. |
-| Title with `/:*?"<>\|` or > 80 chars | `sanitizeTitle()` replaces unsafe chars with `_`, truncates to 80. |
+| Title with `/:*?"<>\|` or > 80 chars | `sanitizeTitle()` strips only filesystem-reserved chars (POSIX + Windows: `/\:*?"<>\|` plus control chars `\x00-\x1f`), preserves Unicode (Emoji, CJK, RTL) verbatim, then truncates to 80 chars by code-point count (not byte length, so multi-byte CJK doesn't get split mid-codepoint). |
 | Tier 1 yt-dlp returns 0 but `.vtt` is 0 bytes | Treated as failed; proceed to tier 2. |
 | Empty audio / 0 duration | Throw before splitting. |
 | `silencedetect` reports timestamp ≥ duration (the v1.1.1 bug) | `splitAudio` filters `sp < duration - 0.5`. Test fixture covers this. |
+| `silence_start` at EOF without matching `silence_end` | Parser falls back to using `silence_start` as candidate when `< audioDuration` (see §5). |
 | Audio < `minSegment` (60s) | Skip splitting; single-worker direct transcribe. |
 | Audio ≥ `maxSegment` but **no silence at all** | Equal-length 30s hard cuts (last branch of `findSplitPoints`). |
 | Whisper model missing | Auto-download to `~/.cache/whisper-models/`. Hard fail if download fails. |
 | Single chunk worker throws | Caught by pool; chunk recorded as empty segments; job continues. |
 | All chunks fail | Empty `subtitle.vtt`/`transcript.txt` written; exit code 2; summary "0/N succeeded". |
-| Ctrl+C | `SIGINT` handler: terminate workers, rm tmpDir, exit 130. |
+| Insufficient disk space | Before download: `statvfs`-equivalent check on `outDir`'s filesystem. Require ≥ 2 GB free for 1080p flow (rough heuristic: `video.mp4` ~1× source, `audio.mp3` ~10% of source, ASR chunks transient). Warn-only when below threshold; user can override with `--no-disk-check`. |
+| Ctrl+C / SIGTERM | `process.on("SIGINT" \| "SIGTERM")` handler in `cli.ts`: send `{type:'SHUTDOWN'}` to all workers, `worker.terminate()`, `rm -rf tmpDir`, exit 130. `try/finally` in `transcribeParallel` is a second-line defense. No 300 MB chunk-piles left behind. |
 | Existing files in `outDir` | Overwrite (matches original `yt-dlp -o`). No prompt. |
+| `smart-whisper` native deps missing on macOS (no Xcode CLI Tools) | `install_deps.ts` runs `xcode-select -p` and prompts user to run `xcode-select --install` if absent. The `bun install` of `smart-whisper` will compile the N-API addon, which fails silently without it. |
 
 ### Logging convention
 
@@ -285,10 +319,10 @@ validSplitPoints = splitPoints.filter(sp => sp < duration - 0.5)
 
 | File | Covers |
 |---|---|
-| `test/splitter.test.ts` | `findSplitPoints` heuristic edge cases, including: duration ≤ max, perfect 30s spacing, all-short-gaps fallback to equal cuts, silences containing values ≥ duration (combined with `splitAudio` filter check) |
-| `test/silence.test.ts` | `parseSilenceDetectStderr` against fixtures: empty stderr, multiple silences, mixed lines (`silence_start` ignored), malformed lines tolerated |
+| `test/splitter.test.ts` | `findSplitPoints` heuristic edge cases, including: duration ≤ max, perfect 30s spacing, all-short-gaps fallback to equal cuts, silences containing values ≥ duration (combined with `splitAudio` filter check), **trailing-too-short trim (Refinement A)**: `splits=[30, 60, 90, 119.8]` with `duration=120, min=10` → trim → `[30, 60, 90]` |
+| `test/silence.test.ts` | `parseSilenceDetectStderr` against fixtures: empty stderr, multiple silences, **trailing `silence_start` without `silence_end`** (silence-to-EOF), mixed lines, malformed lines tolerated |
 | `test/subtitles.test.ts` | `vttToTranscript` and `srtToTranscript` against fixtures: simple VTT, VTT with `NOTE`/`Kind:`/`Language:`, multiline cues, simple SRT |
-| `test/shell.test.ts` | `sanitizeTitle`: replaces `/:*?"<>\|`, truncates to 80, preserves Unicode |
+| `test/shell.test.ts` | `sanitizeTitle`: replaces filesystem-reserved chars + control chars, truncates to 80 **code points** (not bytes — verify CJK and Emoji), preserves Emoji/CJK/RTL verbatim |
 | `test/ffmpeg.test.ts` | argv construction (mock `run`); no real ffmpeg call |
 
 ### Not unit-tested (deliberate)
@@ -318,11 +352,13 @@ bun run summarize <url> [options]
 Options:
   --model <name>            tiny | base | small (default) | medium | large-v3
   --language <code>         Language code or 'auto' (default: auto)
-  --workers <n>             Parallel ASR workers (default: floor(CPU/2))
+  --workers <n>             Parallel ASR workers (default: floor(CPU/2),
+                            silently capped at MAX_CONCURRENT_INFERENCE = floor(CPU/4))
   --min-segment <sec>       Min duration to enable splitting (default: 60)
   --output <dir>            Root output dir (default: ./downloads)
   --cookies-from-browser <browser>   chrome | firefox | edge | safari
   --skip-video              Don't download video.mp4 (audio + subs + transcript only)
+  --no-disk-check           Skip the pre-flight free-space warning
   --help                    Print usage
 ```
 
@@ -339,6 +375,10 @@ Options:
 | 5 | Worker pool reuses model across chunks (one load per worker, many chunks) | Original loads model per chunk (per Python process), so behavior differs slightly: TS port is more memory-efficient when chunks > workers |
 | 6 | Whisper models cached at `~/.cache/whisper-models/` | smart-whisper doesn't auto-download |
 | 7 | `marketplace.json` and CHANGELOG version bumped to 2.0.0-ts | Distinguish from upstream |
+| 8 | **macOS GPU acceleration via CoreML / Metal** | When `smart-whisper` is built with CoreML support (default on macOS), inference runs on the Neural Engine / GPU with 3–10× speedup over CPU. The original Python (`faster-whisper` / CTranslate2) typically uses CPU on macOS unless CUDA is available. **This is a real upgrade for Apple Silicon users.** Documented in README. |
+| 9 | Concurrency capped at `MAX_CONCURRENT_INFERENCE = floor(cpus/4)` | Original had no cap (Python ProcessPoolExecutor was implicitly bounded by per-chunk model load). Without this cap, large-v3 + 16 workers would OOM. |
+| 10 | Live progress streaming for yt-dlp/ffmpeg | Original bash didn't stream; user just stared at the terminal. TS port forwards `[download] X%` lines as they arrive. |
+| 11 | Disk space pre-check (warn) | Original had no check; user found out when ffmpeg failed mid-cut. |
 
 ## 10. Implementation Order (preview, full plan via writing-plans)
 
