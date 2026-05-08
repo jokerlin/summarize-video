@@ -1,0 +1,5 @@
+[silencedetect] silence_end: not_a_number
+[silencedetect] silence_end:
+[silencedetect] silence_end: 7.5 | silence_duration: 0.5
+random log line
+silence_start without prefix
