@@ -6,3 +6,4 @@ downloads/
 .idea/
 .vscode/
 bun.lock
+.codex-reviews/
