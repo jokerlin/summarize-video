@@ -21,7 +21,7 @@
 ## ✨ 特性
 
 - **🌐 平台通吃** —— 凡是 `yt-dlp` 支持的都行：YouTube、Bilibili、Twitter / X、TikTok、Vimeo、Instagram、Twitch……
-- **🔇 默认只下音频** —— 默认输出 `audio.mp3`；要 mp4 时再加 `--with-video`
+- **🔇 按需下载** —— 字幕能拿到就只下字幕；只有 whisper 兜底时才下载音频。要保留音频或视频文件，传 `--with-audio` / `--with-video`
 - **📝 三级字幕策略** —— 官方字幕 → 自动字幕 → 本地 Whisper，依次回退
 - **⚡ Apple Silicon 上很快** —— `whisper-cli` 跑在 Metal 上，相同模型下比 Python whisper CLI 快约 5–10 倍
 - **🍪 自带 Cookie** —— 默认用 Chrome 的 cookie，YouTube 的人机校验不再挡路
@@ -69,7 +69,10 @@ bun run summarize "https://www.youtube.com/watch?v=..."
 ### 常用参数
 
 ```bash
-# 同时保留 mp4（默认只下音频）
+# 即便有官方字幕也强制保留 audio.mp3
+bun run summarize "<URL>" --with-audio
+
+# 同时下载 video.mp4
 bun run summarize "<URL>" --with-video
 
 # 换一个 Whisper 模型（默认：base）
@@ -89,23 +92,23 @@ bun run summarize "<URL>" --no-cookies
 ```
 ./downloads/
 └── <视频标题>/
-    ├── audio.mp3         # 提取后的音频
     ├── subtitle.vtt      # 带时间戳的字幕
     ├── transcript.txt    # 纯文本转录
     ├── _metadata.json    # 标题 / 平台 / URL / 时长 / 字幕来源
     ├── summary.md        # skill 模式下由 Claude 生成
+    ├── audio.mp3         # 仅当 whisper 跑过，或传了 --with-audio
     └── video.mp4         # 仅当传了 --with-video
 ```
 
 ## 🎯 工作原理
 
 1. **元数据** —— `yt-dlp --print` 拿到标题、时长、平台、语言
-2. **音频** —— `yt-dlp -x --audio-format mp3` 提取出 `audio.mp3`
-3. **视频**（可选）—— 传 `--with-video` 时下载 `bestvideo[≤1080p]+bestaudio` 并合成 `video.mp4`
-4. **字幕** —— 三级回退：
+2. **视频**（可选）—— 传 `--with-video` 时下载 `bestvideo[≤1080p]+bestaudio` 并合成 `video.mp4`
+3. **字幕** —— 三级回退：
    1. `yt-dlp --write-subs` —— 官方字幕（zh / en / zh-Hans / zh-Hant）
    2. `yt-dlp --write-auto-subs` —— 自动生成字幕（zh / en）
-   3. `whisper-cli` —— 本地转写
+   3. `whisper-cli` —— 先下 `audio.mp3`，再本地转写
+4. **音频**（按需）—— 仅当 whisper 兜底跑过、或传了 `--with-audio` 时才会留下 `audio.mp3`
 5. **转录文本** —— `subtitle.vtt` 解析成不带时间戳的 `transcript.txt`
 6. **总结** —— 作为 Claude Code skill 调用时由 Claude 写出；纯 CLI 只做 1–5 步
 

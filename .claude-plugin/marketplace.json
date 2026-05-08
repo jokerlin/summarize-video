@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Download videos from 1800+ platforms and generate AI summaries (TypeScript + Bun, whisper.cpp transcription)",
-    "version": "3.0.0"
+    "version": "3.1.0"
   },
   "plugins": [
     {
       "name": "video-summarizer",
       "source": "./",
-      "description": "Download videos from YouTube, Bilibili, Twitter/X, TikTok and 1800+ platforms. Outputs audio (MP3), subtitles (VTT), transcript (TXT), metadata, and optional video (MP4 with --with-video). Implementation: TypeScript + Bun. ASR via whisper.cpp's whisper-cli (Metal-accelerated on Apple Silicon).",
-      "version": "3.0.0",
+      "description": "Download videos from YouTube, Bilibili, Twitter/X, TikTok and 1800+ platforms. Outputs subtitles (VTT), transcript (TXT), metadata, and optional audio.mp3 (--with-audio) / video.mp4 (--with-video). Subtitles fast-path skips audio download entirely when official/auto subs are available. Implementation: TypeScript + Bun. ASR via whisper.cpp's whisper-cli (Metal-accelerated on Apple Silicon).",
+      "version": "3.1.0",
       "author": {
         "name": "linheng21cn"
       },

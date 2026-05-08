@@ -12,8 +12,10 @@ import type { CliOptions, SubtitleSource, WhisperModelName } from "./types.ts";
 
 const USAGE = `Usage: bun run summarize <url> [options]
 
-By default only audio + transcript are produced (faster + saves bandwidth).
-Pass --with-video to also download the mp4.
+By default the CLI only fetches what's needed for a transcript:
+  - Subtitles fast-path (Tier 1/2): only the .vtt is downloaded.
+  - Whisper fallback (Tier 3): audio.mp3 is downloaded so whisper-cli can run.
+Pass --with-audio / --with-video to keep those files even when not strictly needed.
 
 Options:
   --model <name>            tiny | base (default) | small | medium | large-v3
@@ -21,7 +23,8 @@ Options:
   --output <dir>            Root output dir (default: ./downloads)
   --cookies-from-browser <browser>   chrome (default) | firefox | edge | safari
   --no-cookies              Disable cookie extraction (default sends Chrome cookies)
-  --with-video              Also download video.mp4 (default: audio + transcript only)
+  --with-video              Also download video.mp4
+  --with-audio              Always keep audio.mp3 (default: only when whisper runs)
   --no-disk-check           Skip the pre-flight free-space warning
   --help                    Print this help
 `;
@@ -39,6 +42,7 @@ function parseCliArgs(): CliOptions {
       "cookies-from-browser": { type: "string" },
       "no-cookies": { type: "boolean", default: false },
       "with-video": { type: "boolean", default: false },
+      "with-audio": { type: "boolean", default: false },
       "no-disk-check": { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
@@ -76,6 +80,7 @@ function parseCliArgs(): CliOptions {
     output: values.output!,
     cookiesFromBrowser,
     withVideo: values["with-video"]!,
+    withAudio: values["with-audio"]!,
     noDiskCheck: values["no-disk-check"]!,
   };
 }
@@ -139,12 +144,12 @@ export async function main(): Promise<number> {
     await downloadVideo(opts.url, outDir, cookiesOpt);
   }
 
-  process.stderr.write("Downloading audio...\n");
-  await downloadAudio(opts.url, outDir, cookiesOpt);
-
+  // Try subtitles BEFORE downloading audio — if Tier 1/2 hits we don't need audio at all.
   process.stderr.write("Trying to fetch subtitles...\n");
-  let source: SubtitleSource;
   const subTier = await downloadSubtitles(opts.url, outDir, cookiesOpt);
+  let source: SubtitleSource;
+  let audioDownloaded = false;
+
   if (subTier) {
     source = subTier;
     const sub = await findSubtitleFile(outDir);
@@ -152,8 +157,18 @@ export async function main(): Promise<number> {
       const txt = await vttToTranscript(sub);
       await Bun.write(join(outDir, "transcript.txt"), txt);
     }
+    // Subtitles are sufficient. Only fetch audio if user explicitly asked.
+    if (opts.withAudio) {
+      process.stderr.write("Downloading audio (--with-audio)...\n");
+      await downloadAudio(opts.url, outDir, cookiesOpt);
+      audioDownloaded = true;
+    }
   } else {
+    // Whisper fallback needs audio.mp3.
     source = "whisper";
+    process.stderr.write("No subtitles available; downloading audio for whisper...\n");
+    await downloadAudio(opts.url, outDir, cookiesOpt);
+    audioDownloaded = true;
     await transcribeWithWhisperCli({
       input: join(outDir, "audio.mp3"),
       outputDir: outDir,
@@ -181,7 +196,7 @@ export async function main(): Promise<number> {
 
   const summary: string[] = [];
   if (opts.withVideo) summary.push("✓ video.mp4");
-  summary.push("✓ audio.mp3");
+  if (audioDownloaded) summary.push("✓ audio.mp3");
   summary.push(`✓ subtitle.vtt    (source: ${source})`);
   summary.push("✓ transcript.txt");
   summary.push("⚠ summary.md      (skill mode only — Claude generates this)");

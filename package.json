@@ -1,6 +1,6 @@
 {
   "name": "video-summarizer",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Download videos from 1800+ platforms and produce a Claude-ready summary package (TypeScript + Bun, transcription via whisper.cpp's whisper-cli)",
   "license": "MIT",
   "type": "module",

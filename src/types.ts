@@ -23,5 +23,6 @@ export interface CliOptions {
   /** Browser to extract cookies from. Defaults to "chrome". `undefined` means --no-cookies. */
   cookiesFromBrowser: string | undefined;
   withVideo: boolean;
+  withAudio: boolean;
   noDiskCheck: boolean;
 }

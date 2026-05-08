@@ -9,11 +9,11 @@ description: "Download videos from 1800+ platforms (YouTube, Bilibili, Twitter/X
 
 Download videos from any platform supported by yt-dlp (1800+) and produce:
 
-- `audio.mp3` — extracted audio
-- `subtitle.vtt` — subtitles with timestamps
-- `transcript.txt` — plain-text transcript (no timestamps)
+- `subtitle.vtt` — subtitles with timestamps (always)
+- `transcript.txt` — plain-text transcript (always)
 - `summary.md` — structured Markdown summary (you generate this in Step 6)
-- `video.mp4` — only when `--with-video` is passed (default: audio-only)
+- `audio.mp3` — only when whisper had to run, or when `--with-audio` is passed
+- `video.mp4` — only when `--with-video` is passed
 
 ## Trigger Conditions
 
@@ -31,11 +31,11 @@ All files are saved to `./downloads/<video-title>/` in the current working direc
 ```
 ./downloads/
 └── <video-title>/
-    ├── audio.mp3
     ├── subtitle.vtt
     ├── transcript.txt
     ├── _metadata.json    # CLI writes this; you read it in Step 6
     ├── summary.md         # YOU write this in Step 6
+    ├── audio.mp3          # only if whisper ran, or --with-audio was passed
     └── video.mp4          # only if --with-video was passed
 ```
 
@@ -57,7 +57,7 @@ bun run summarize "<URL>"
 
 By default the CLI:
 - Sends Chrome cookies to yt-dlp (handles YouTube's bot challenge and authenticated content). Pass `--no-cookies` to disable, or `--cookies-from-browser firefox` to switch browsers.
-- Skips the mp4 download (audio + transcript only). Pass `--with-video` if you also want `video.mp4`.
+- Only fetches what's strictly needed for the transcript. If subtitles are available (Tier 1/2), nothing else is downloaded. If whisper has to run (Tier 3), audio is downloaded for it. Pass `--with-audio` / `--with-video` to keep those files in any case.
 
 Optional flags:
 
@@ -69,16 +69,17 @@ Optional flags:
 | `--cookies-from-browser` | chrome | chrome / firefox / edge / safari |
 | `--no-cookies` | false | Disable cookie extraction (mutually exclusive with `--cookies-from-browser`) |
 | `--with-video` | false | Also download video.mp4 |
+| `--with-audio` | false | Always keep audio.mp3 (default: only when whisper runs) |
 | `--no-disk-check` | false | Skip free-space warning |
 
 The CLI:
 1. Fetches metadata (`yt-dlp --print`) and sanitizes the title for filesystem use.
 2. (Optional) Downloads `video.mp4` (mp4, ≤ 1080p, merged with audio) when `--with-video` is set.
-3. Downloads `audio.mp3` (`yt-dlp -x --audio-format mp3`).
-4. Tries 3 subtitle tiers, falling through:
+3. Tries 3 subtitle tiers, falling through:
    - **manual** — `yt-dlp --write-subs --sub-lang zh,en,zh-Hans,zh-Hant`
    - **auto** — `yt-dlp --write-auto-subs --sub-lang zh,en`
-   - **whisper** — `whisper-cli` (whisper.cpp). Metal GPU acceleration on Apple Silicon.
+   - **whisper** — downloads `audio.mp3` (`yt-dlp -x --audio-format mp3`), then runs `whisper-cli` (whisper.cpp, Metal GPU on Apple Silicon).
+4. If `--with-audio` is set and Tier 1/2 hit, downloads `audio.mp3` afterwards.
 5. Writes `subtitle.vtt`, `transcript.txt`, and `_metadata.json`.
 
 ### Step 6: Generate `summary.md`

@@ -21,7 +21,7 @@ A small CLI that pulls audio from 1800+ video platforms, transcribes it locally 
 ## ✨ Features
 
 - **🌐 Works almost anywhere** — anything `yt-dlp` supports: YouTube, Bilibili, Twitter / X, TikTok, Vimeo, Instagram, Twitch, …
-- **🔇 Audio-first** — pulls only `audio.mp3` by default; pass `--with-video` when you actually need the mp4
+- **🔇 Lazy fetching** — only downloads what's needed for the transcript. If the platform has subtitles, nothing else is fetched. Pass `--with-audio` / `--with-video` when you want the media files anyway
 - **📝 Three-tier subtitles** — official subs → auto-generated subs → local Whisper, in that order
 - **⚡ Fast on Apple Silicon** — `whisper-cli` runs on Metal, roughly 5–10× faster than the Python whisper CLI on the same model
 - **🍪 Cookie-aware** — Chrome cookies by default, so YouTube's bot challenge stays out of your way
@@ -69,7 +69,10 @@ bun run summarize "https://www.youtube.com/watch?v=..."
 ### Common flags
 
 ```bash
-# also keep the mp4 (default is audio-only)
+# keep audio.mp3 even when subtitles were available
+bun run summarize "<URL>" --with-audio
+
+# also download video.mp4
 bun run summarize "<URL>" --with-video
 
 # pick a different Whisper model (default: base)
@@ -89,23 +92,23 @@ Run `bun run summarize --help` for the full flag list.
 ```
 ./downloads/
 └── <Video_Title>/
-    ├── audio.mp3         # extracted audio
     ├── subtitle.vtt      # subtitles with timestamps
     ├── transcript.txt    # plain-text transcript
     ├── _metadata.json    # title / platform / url / duration / source
     ├── summary.md        # Claude generates this in skill mode
+    ├── audio.mp3         # only if whisper ran, or --with-audio was passed
     └── video.mp4         # only if --with-video was passed
 ```
 
 ## 🎯 How It Works
 
 1. **Metadata** — `yt-dlp --print` for title, duration, platform, language
-2. **Audio** — `yt-dlp -x --audio-format mp3` extracts `audio.mp3`
-3. **Video** *(optional)* — with `--with-video`, downloads `bestvideo[≤1080p]+bestaudio` merged to `video.mp4`
-4. **Subtitles** — three-tier fallback:
+2. **Video** *(optional)* — with `--with-video`, downloads `bestvideo[≤1080p]+bestaudio` merged to `video.mp4`
+3. **Subtitles** — three-tier fallback:
    1. `yt-dlp --write-subs` — official subs (zh / en / zh-Hans / zh-Hant)
    2. `yt-dlp --write-auto-subs` — auto-generated (zh / en)
-   3. `whisper-cli` — local transcription
+   3. `whisper-cli` — downloads `audio.mp3` first, then transcribes locally
+4. **Audio** *(conditional)* — downloaded only when whisper has to run, or when `--with-audio` is passed
 5. **Transcript** — `subtitle.vtt` parsed into a clean, timestamp-free `transcript.txt`
 6. **Summary** — written by Claude when invoked as a Claude Code skill; the CLI alone covers steps 1–5
 

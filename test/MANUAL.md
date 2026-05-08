@@ -20,6 +20,7 @@ Expected:
 - `_metadata.json` shows `subtitleSource: "manual"`
 - `subtitle.vtt` has WEBVTT header and timestamps
 - `transcript.txt` is non-empty, no timestamps
+- **No `audio.mp3`** in the output dir (subtitles short-circuit the audio download)
 - No whisper invocation
 - Total runtime ≤ 30 seconds (network-dependent)
 
@@ -70,14 +71,14 @@ Expected:
 - "Received SIGINT, cleaning up..." printed
 - No zombie yt-dlp / whisper-cli / ffmpeg processes (`ps aux | grep -E 'yt-dlp|whisper|ffmpeg'`)
 
-### 3c. --with-video
+### 3c. --with-video / --with-audio
 
 ```bash
-bun run summarize "<URL>" --with-video
+bun run summarize "<URL with subs>" --with-video --with-audio
 ```
 
 Expected:
-- All output files present, **including** `video.mp4`
+- Output dir contains `video.mp4` AND `audio.mp3` even though Tier 1/2 subs were used.
 
 ## Sign-off Checklist
 
