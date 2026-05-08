@@ -1,5 +1,6 @@
 // src/splitter.ts
-// (cutSegment / getAudioDuration imports added in Task 8 alongside splitAudio)
+import { join } from "node:path";
+import { cutSegment, getAudioDuration } from "./ffmpeg.ts";
 
 /**
  * Decide where to split an audio file given silence candidates.
@@ -49,4 +50,40 @@ export function findSplitPoints(
   }
 
   return splitPoints;
+}
+
+export function filterValidSplitPoints(splitPoints: number[], duration: number): number[] {
+  return splitPoints.filter((sp) => sp < duration - 0.5);
+}
+
+export interface AudioChunk {
+  path: string;
+  startOffset: number;
+}
+
+/**
+ * Split an audio file at the given timestamps, writing chunk_NNN.mp3 files
+ * into outDir. Stream-copies (no re-encode). Returns chunk descriptors with
+ * their global start offsets.
+ *
+ * Applies the v1.1.1 safety filter (drops points within 0.5s of duration).
+ */
+export async function splitAudio(
+  audioPath: string,
+  splitPoints: number[],
+  outDir: string,
+): Promise<AudioChunk[]> {
+  const duration = await getAudioDuration(audioPath);
+  const valid = filterValidSplitPoints(splitPoints, duration);
+  const allPoints = [0, ...valid, duration];
+
+  const chunks: AudioChunk[] = [];
+  for (let i = 0; i < allPoints.length - 1; i++) {
+    const start = allPoints[i]!;
+    const end = allPoints[i + 1]!;
+    const chunkPath = join(outDir, `chunk_${String(i).padStart(3, "0")}.mp3`);
+    await cutSegment(audioPath, start, end, chunkPath);
+    chunks.push({ path: chunkPath, startOffset: start });
+  }
+  return chunks;
 }

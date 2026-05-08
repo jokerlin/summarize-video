@@ -1,6 +1,6 @@
 // test/splitter.test.ts
 import { describe, expect, test } from "bun:test";
-import { findSplitPoints } from "../src/splitter.ts";
+import { filterValidSplitPoints, findSplitPoints } from "../src/splitter.ts";
 
 describe("findSplitPoints", () => {
   test("returns [] when duration <= max", () => {
@@ -31,5 +31,19 @@ describe("findSplitPoints", () => {
 
   test("respects custom target/min/max", () => {
     expect(findSplitPoints(200, [50, 100, 150], 50, 20, 70)).toEqual([50, 100, 150]);
+  });
+});
+
+describe("filterValidSplitPoints (v1.1.1 fix)", () => {
+  test("drops points within 0.5s of duration", () => {
+    expect(filterValidSplitPoints([10, 30, 119.8, 120.1], 120)).toEqual([10, 30]);
+  });
+
+  test("keeps all points when none exceed duration - 0.5", () => {
+    expect(filterValidSplitPoints([10, 30, 60], 120)).toEqual([10, 30, 60]);
+  });
+
+  test("returns [] when duration is shorter than all points", () => {
+    expect(filterValidSplitPoints([10, 30], 5)).toEqual([]);
   });
 });
