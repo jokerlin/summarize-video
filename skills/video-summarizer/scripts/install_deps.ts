@@ -81,12 +81,34 @@ async function ensureYtDlp(): Promise<void> {
 }
 
 async function ensureBunDeps(): Promise<void> {
-  log("  Running `bun install` to make sure smart-whisper is built...");
+  log("  Running `bun install` to make sure smart-whisper is fetched...");
   const r = await run("bun", ["install"], { cwd: process.cwd() });
   if (r.exitCode !== 0) {
     err(r.stderr);
     process.exit(1);
   }
+  // Bun skips lifecycle scripts of untrusted deps. We declared smart-whisper
+  // in `trustedDependencies` (package.json), so `bun install` should run its
+  // node-gyp rebuild — but verify the .node file exists and rebuild if not.
+  const pkgRoot = `${process.cwd()}/node_modules/smart-whisper`;
+  const nodeAddon = `${pkgRoot}/build/Release/smart-whisper.node`;
+  if (await Bun.file(nodeAddon).exists()) {
+    log("  smart-whisper native addon: OK");
+    return;
+  }
+  log("  Building smart-whisper native addon (node-gyp rebuild)...");
+  const env: Record<string, string> = {};
+  if (process.platform === "darwin") env.WHISPER_COREML = "1";
+  const build = await run("npx", ["node-gyp", "rebuild"], { cwd: pkgRoot, env });
+  if (build.exitCode !== 0) {
+    err(`  node-gyp rebuild failed:\n${build.stderr.slice(-1500)}`);
+    process.exit(1);
+  }
+  if (!(await Bun.file(nodeAddon).exists())) {
+    err("  Error: build succeeded but smart-whisper.node still missing.");
+    process.exit(1);
+  }
+  log("  smart-whisper native addon built.");
 }
 
 async function main(): Promise<void> {
